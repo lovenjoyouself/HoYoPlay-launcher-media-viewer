@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HoYoPlay launcher媒體檢視工具 (v20)</title>
+<style>
+/* ... (樣式保持不變，維持 v19/v18 的佈局修正) ... */
+body {
+  background: #121212;
+  color: #ddd;
+  font-family: "Segoe UI", sans-serif;
+  margin: 2em;
+}
+h2 { 
+  color: #3a7afe;
+  margin-bottom: 5px; 
+}
+p#mainDescription {
+    margin: 0;
+    padding: 0;
+    height: 0; 
+    visibility: hidden; 
+}
+
+textarea {
+  width: 100%;
+  box-sizing: border-box;
+  height: 150px;
+  background: #1e1e1e;
+  color: #eee;
+  border: 1px solid #444;
+  padding: 10px;
+  border-radius: 6px;
+  resize: vertical;
+  margin-top: 10px;
+  font-size: 1.1em; 
+}
+#resultText {
+    height: 100px; 
+    cursor: default;
+}
+
+/* 語言選擇器新位置樣式 */
+.language-selector {
+    position: relative;
+    top: auto;
+    right: auto;
+    display: inline-block; 
+    margin-bottom: 15px; 
+    z-index: 10;
+}
+.language-selector select, .language-selector label {
+    background: #121212;
+    color: #ddd;
+    padding: 5px;
+}
+
+/* 檔案來源提示 (簡化樣式) */
+.file-source-tip {
+    margin: 0 0 15px 0; 
+    padding: 5px 0; 
+    background: transparent;
+    border-left: none;
+    font-size: 0.95em;
+    color: #b3b3e6;
+    word-break: break-all;
+}
+
+/* --- 畫廊模式佈局 (v18 修正保持) --- */
+.gallery-container {
+  margin-top: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+  width: 100%; 
+}
+.gallery-item {
+  background: #1e1e1e;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+  transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+  border: 1px solid #333;
+  
+  overflow: hidden; 
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  min-width: 0; 
+}
+.media-wrapper {
+  width: 100%;
+  padding-top: 75%; 
+  position: relative;
+  background: #222;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-shrink: 0;
+}
+.media-wrapper img, .media-wrapper video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important; 
+  height: 100% !important;
+  object-fit: contain !important; 
+  max-width: 100%; 
+  max-height: 100%;
+}
+.item-info {
+  padding: 8px;
+  font-size: 0.9em;
+  color: #bbb;
+  height: 50px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  flex-grow: 1;
+}
+
+/* ... (Modal 樣式保持不變) ... */
+</style>
+</head>
+<body>
+
+<h2 id="mainTitle"></h2>
+
+<div class="language-selector">
+    <label for="languageSelector" id="languageLabel"></label>
+    <select id="languageSelector" onchange="setLanguage(this.value)">
+        <option value="zh-TW">繁體中文</option>
+        <option value="en-US">English</option>
+    </select>
+</div>
+
+<p id="mainDescription"></p>
+
+<div class="file-source-tip" id="sourceTip"></div>
+
+<div class="file-controls-top">
+    <div class="file-upload-container">
+        <label for="fileInput" id="fileLabel" class="file-upload-label"></label>
+        <input type="file" id="fileInput" onchange="handleFileSelect(event)" multiple>
+    </div>
+</div>
+
+<textarea 
+  id="inputText" 
+  placeholder=""
+  ondragover="handleDragOver(event)"
+  ondragleave="handleDragLeave(event)"
+  ondrop="handleDrop(event)"
+></textarea>
+
+<div class="action-buttons">
+    <button id="extractButton" onclick="extractLinks()"></button>
+</div>
+
+<h3 id="resultTitle" style="margin-top: 30px; margin-bottom: 5px; display: none;"></h3>
+<textarea 
+  id="resultText"
+  readonly
+  placeholder=""
+  style="cursor: default; display: none;"
+></textarea>
+<button id="copyResultButton" onclick="copyResultText()" class="secondary" style="margin-top: 5px; display: none;"></button>
+
+<div id="controlsPanel" class="controls-panel" style="display: none; margin-top: 20px;">
+  <div class="top-controls">
+    <div class="selection-buttons">
+        <button id="selectAllButton" onclick="toggleAllCheckboxes(true)" class="secondary"></button>
+        <button id="deselectAllButton" onclick="toggleAllCheckboxes(false)" class="secondary"></button>
+        <button id="exportButton" onclick="exportSelectedLinks()"></button>
+    </div>
+    <div>
+        <label for="sortSelector" id="sortLabel"></label>
+        <select id="sortSelector" onchange="applySortAndFilter()">
+            <option value="default" id="sortDefault"></option>
+            <option value="resolution_desc" id="sortResDesc"></option>
+            <option value="resolution_asc" id="sortResAsc"></option>
+        </select>
+    </div>
+  </div>
+  <div id="filterControls" class="filter-controls">
+    <strong id="filterLabel"></strong>
+  </div>
+</div>
+
+<div class="gallery-container" id="urlList"></div>
+
+<div id="myModal" class="modal" onclick="closeModal(event)">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <span class="close-btn" onclick="closeModal()">&times;</span>
+    <div id="modal-media-container">
+    </div>
+    <div class="modal-info">
+      <div class="modal-controls">
+        <button id="copyLinkButton" onclick="copyLink()"></button>
+        <p>
+            <strong id="modalDimLabel"></strong> <span id="modal-dimensions"></span>
+        </p>
+      </div>
+      <p>
+        <strong id="modalLinkLabel"></strong> <a id="modal-link" href="#" target="_blank"></a>
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- 國際化字串 (版本號更新) ---
+const translations = {
+    'zh-TW': {
+        mainTitle: 'HoYoPlay launcher媒體檢視工具',
+        version: '(v20)', // 💡 版本號更新
+        mainDescription: '', 
+        sourceTip: 'HoYoPlay 啟動器預設的data_1媒體檔案位置在<br><code>C:\\Users\\%UserName%\\AppData\\Roaming\\Cognosphere\\HYP\\1_0\\fedata\\Cache\\Cache_Data</code>', 
+        extractButton: '提取連結',
+        fileLabel: '選擇檔案',
+        textareaPlaceholder: '請貼上原始內容，或將 data_1 檔案拖曳至此...',
+        resultTitle: '🔑 提取結果 (所有連結)',
+        resultPlaceholder: '提取的連結將顯示於此...',
+        copyResultButton: '複製所有連結',
+        selectAllButton: '全部勾選',
+        deselectAllButton: '全部取消',
+        exportButton: '匯出選取連結 (.txt)',
+        sortLabel: '排序方式:',
+        sortDefault: '預設 (提取順序)',
+        sortResDesc: '依解析度 (大到小)',
+        sortResAsc: '依解析度 (小到大)',
+        filterLabel: '篩選檔案類型：',
+        modalDimLabel: '解析度/狀態:',
+        modalLinkLabel: '完整連結:',
+        copyLinkButton: '複製連結',
+        languageLabel: '語言:',
+        alertCopied: '連結已複製到剪貼簿！',
+        alertResultCopied: '所有提取連結已複製到剪貼簿！',
+        alertCopyFailed: '複製失敗，請手動複製。',
+        alertNoLinks: '請至少勾選一個連結才能匯出！',
+        mediaReading: '[...] 讀取中',
+        mediaReadingError: '讀取失敗', // 💡 回溯到更簡單的錯誤提示
+        mediaTypeError: '無法預覽此媒體類型',
+        fileReadStart: '--- 讀取 %s 個檔案 ---',
+        fileReadSuccess: '[檔案: %s]',
+        fileReadComplete: '--- 檔案讀取完畢 ---',
+        fileReadFail: '[檔案 %s 讀取失敗]',
+        fileSkip: '[檔案 %s 非文字檔，已略過]',
+    },
+    'en-US': {
+        mainTitle: 'HoYoPlay launcher Media Viewer',
+        version: '(v20)',
+        mainDescription: '',
+        sourceTip: 'The default data_1 media file location for the HoYoPlay launcher is at<br><code>C:\\Users\\%UserName%\\AppData\\Roaming\\Cognosphere\\HYP\\1_0\\fedata\\Cache\\Cache_Data</code>',
+        extractButton: 'Extract Links',
+        fileLabel: 'Select File',
+        textareaPlaceholder: 'Paste raw content, or drag the data_1 file here...',
+        resultTitle: '🔑 Extraction Results (All Links)',
+        resultPlaceholder: 'Extracted links will appear here...',
+        copyResultButton: 'Copy All Links',
+        selectAllButton: 'Select All',
+        deselectAllButton: 'Deselect All',
+        exportButton: 'Export Selected Links (.txt)',
+        sortLabel: 'Sort By:',
+        sortDefault: 'Default (Extraction Order)',
+        sortResDesc: 'By Resolution (Largest to Smallest)',
+        sortResAsc: 'By Resolution (Smallest to Largest)',
+        filterLabel: 'Filter File Types:',
+        modalDimLabel: 'Resolution/Status:',
+        modalLinkLabel: 'Full Link:',
+        copyLinkButton: 'Copy Link',
+        languageLabel: 'Language:',
+        alertCopied: 'Link copied to clipboard!',
+        alertResultCopied: 'All extracted links copied to clipboard!',
+        alertCopyFailed: 'Copy failed, please copy manually.',
+        alertNoLinks: 'Please select at least one link to export!',
+        mediaReading: '[...] loading',
+        mediaReadingError: 'Read Error',
+        mediaTypeError: 'Cannot preview this media type',
+        fileReadStart: '--- Reading %s files ---',
+        fileReadSuccess: '[File: %s]',
+        fileReadComplete: '--- File reading complete ---',
+        fileReadFail: '[File %s read failed]',
+        fileSkip: '[File %s is not a text file, skipped]',
+    }
+};
+
+let currentLanguage = 'zh-TW';
+let lastCheckedIndex = -1; 
+let currentUrlsData = []; 
+
+// --- 國際化核心功能 (保持不變) ---
+function setLanguage(lang) {
+    currentLanguage = lang;
+    const t = translations[lang];
+
+    document.getElementById('languageLabel').textContent = t.languageLabel;
+    document.getElementById('mainTitle').innerHTML = `${t.mainTitle} <span style="font-size: 0.8em; color: #888;">${t.version}</span>`;
+    
+    document.getElementById('mainDescription').textContent = t.mainDescription; 
+    
+    document.getElementById('sourceTip').innerHTML = t.sourceTip; 
+    
+    document.getElementById('extractButton').textContent = t.extractButton;
+    document.getElementById('fileLabel').textContent = t.fileLabel; 
+    
+    document.getElementById('inputText').placeholder = t.textareaPlaceholder;
+    document.getElementById('resultTitle').textContent = t.resultTitle;
+    document.getElementById('resultText').placeholder = t.resultPlaceholder;
+    document.getElementById('copyResultButton').textContent = t.copyResultButton;
+    
+    document.getElementById('selectAllButton').textContent = t.selectAllButton;
+    document.getElementById('deselectAllButton').textContent = t.deselectAllButton;
+    document.getElementById('exportButton').textContent = t.exportButton;
+    document.getElementById('sortLabel').textContent = t.sortLabel;
+    document.getElementById('sortDefault').textContent = t.sortDefault;
+    document.getElementById('sortResDesc').textContent = t.sortResDesc;
+    document.getElementById('sortResAsc').textContent = t.sortResAsc;
+    document.getElementById('filterLabel').textContent = t.filterLabel;
+    document.getElementById('modalDimLabel').textContent = t.modalDimLabel;
+    document.getElementById('modalLinkLabel').textContent = t.modalLinkLabel;
+    document.getElementById('copyLinkButton').textContent = t.copyLinkButton;
+
+    updateFileLogLanguage();
+    updateDimensionLabels();
+    
+    toggleResultDisplay(false); 
+}
+
+function updateFileLogLanguage() {
+    document.getElementById('inputText').placeholder = translations[currentLanguage].textareaPlaceholder;
+}
+
+function updateDimensionLabels() {
+    const t = translations[currentLanguage];
+    document.querySelectorAll('.dimensions-info').forEach(span => {
+        if (span.textContent.includes('...')) {
+            const dim = span.closest('.gallery-item').dataset.dimensions;
+            if (dim === "Error") { // 舊版錯誤標記
+                span.textContent = `[${t.mediaReadingError}]`;
+            } else if (dim === "[...]") {
+                 span.textContent = `${t.mediaReading}`;
+            }
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    setLanguage('zh-TW');
+    document.getElementById('languageSelector').value = 'zh-TW';
+    toggleResultDisplay(false);
+});
+
+function toggleResultDisplay(show) {
+    const display = show ? 'block' : 'none';
+    const textareaDisplay = show ? 'block' : 'none';
+    
+    document.getElementById("resultTitle").style.display = display;
+    document.getElementById("resultText").style.display = textareaDisplay;
+    document.getElementById("copyResultButton").style.display = display;
+}
+
+// --- 核心工具邏輯 (保持不變) ---
+
+const EXTENSIONS = [
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg', 'tif', 'tiff', 'ico',
+  'mp4', 'webm', 'mov', 'avi', 'mkv', 'flv', 'ogv', 'wmv',
+  'mp3', 'wav', 'ogg', 'm4a', 'flac'
+];
+
+const TYPE_REGEX = new RegExp(`\\.(${EXTENSIONS.join('|')})$`, 'i');
+const URL_PATTERN = new RegExp(`https://[\\w.\\-/:?=&%_~+]+?\\.(${EXTENSIONS.join('|')})\\b`, 'gi');
+
+function handleFileSelect(event) { handleFiles(event.target.files); }
+function handleDragOver(event) { event.preventDefault(); event.target.classList.add('drag-over'); }
+function handleDragLeave(event) { event.preventDefault(); event.target.classList.remove('drag-over'); }
+function handleDrop(event) { event.preventDefault(); event.target.classList.remove('drag-over'); handleFiles(event.dataTransfer.files); }
+
+function handleFiles(files) {
+  const textarea = document.getElementById("inputText");
+  let pending = files.length;
+  if (pending === 0) return;
+  const t = translations[currentLanguage];
+
+  textarea.value += `\n--- ${t.fileReadStart.replace('%s', pending)} ---\n`;
+
+  Array.from(files).forEach(file => {
+    if (file.type.startsWith('text/') || file.type === '' || file.name.match(/\.(txt|html|htm|md|json|xml)$/i) || file.name === 'data_1' ) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        textarea.value += `\n${t.fileReadSuccess.replace('%s', file.name)}\n`;
+        textarea.value += e.target.result + "\n";
+        pending--;
+        if (pending === 0) { textarea.value += `--- ${t.fileReadComplete} ---\n`; }
+      };
+      reader.onerror = () => { textarea.value += `\n${t.fileReadFail.replace('%s', file.name)}\n`; pending--; };
+      reader.readAsText(file);
+    } else {
+      textarea.value += `\n${t.fileSkip.replace('%s', file.name)}\n`;
+      pending--;
+    }
+  });
+}
+
+function extractLinks() {
+  const text = document.getElementById("inputText").value;
+  const uniqueUrls = Array.from(new Set(text.match(URL_PATTERN) || [])); 
+  const controlsPanel = document.getElementById("controlsPanel");
+  const filterBox = document.getElementById("filterControls");
+  const resultTextarea = document.getElementById("resultText");
+  
+  resultTextarea.value = uniqueUrls.join('\n');
+
+  currentUrlsData = [];
+  filterBox.innerHTML = `<strong id="filterLabel">${translations[currentLanguage].filterLabel}</strong> `;
+  controlsPanel.style.display = "none";
+  document.getElementById("urlList").innerHTML = "";
+
+  if (uniqueUrls.length === 0) {
+    toggleResultDisplay(false); 
+    return;
+  }
+  
+  toggleResultDisplay(true); 
+
+  const fileCounts = new Map();
+
+  uniqueUrls.forEach((url, index) => {
+    const typeMatch = url.match(TYPE_REGEX);
+    const type = typeMatch ? typeMatch[1].toLowerCase() : 'unknown';
+    
+    fileCounts.set(type, (fileCounts.get(type) || 0) + 1);
+
+    const isVisibleMedia = /\.(jpg|jpeg|png|gif|webp|bmp|svg|tif|tiff|ico|mp4|webm|mov|avi|mkv|flv|ogv|wmv)$/i.test(url);
+    
+    currentUrlsData.push({
+        url: url,
+        type: type,
+        isVisible: isVisibleMedia,
+        resolution: 0, 
+        element: null, 
+        initialIndex: index 
+    });
+  });
+
+  const sortedTypes = Array.from(fileCounts.entries()).sort((a, b) => b[1] - a[1]);
+  sortedTypes.forEach(([type, count]) => {
+    const label = document.createElement("label");
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = type;
+    cb.checked = /\.(jpg|jpeg|png|gif|webp|bmp|svg|tif|tiff|ico|mp4|webm|mov|avi|mkv|flv|ogv|wmv)$/i.test(type);
+    cb.onchange = applySortAndFilter; 
+    
+    const countSpan = document.createElement("span");
+    countSpan.className = "count";
+    countSpan.textContent = `[${count}] `;
+    
+    label.appendChild(cb);
+    label.appendChild(countSpan);
+    label.appendChild(document.createTextNode(type.toUpperCase()));
+    filterBox.appendChild(label);
+  });
+  controlsPanel.style.display = "block";
+  
+  createDOMItems();
+  
+  applySortAndFilter();
+}
+
+function createDOMItems() {
+    currentUrlsData.filter(data => data.isVisible).forEach(data => {
+        const item = createGalleryItem(data.url, data.type, false); 
+        data.element = item; 
+        item.dataset.index = data.initialIndex; 
+
+        getMediaDimensions(data.url, item, data.type, (resolutionValue) => {
+            data.resolution = resolutionValue;
+            const sortBy = document.getElementById('sortSelector').value;
+            if (sortBy.startsWith('resolution')) {
+                applySortAndFilter();
+            }
+        });
+    });
+}
+
+function handleShiftClick(checkbox, event) {
+    const checkboxes = Array.from(document.querySelectorAll('.gallery-item input[type="checkbox"]'));
+    const currentIndex = checkboxes.indexOf(checkbox);
+    
+    if (event.shiftKey && lastCheckedIndex !== -1) {
+        const startIndex = Math.min(currentIndex, lastCheckedIndex);
+        const endIndex = Math.max(currentIndex, lastCheckedIndex);
+        
+        const isChecked = checkbox.checked;
+
+        checkboxes.slice(startIndex, endIndex + 1).forEach(cb => {
+            if(cb.closest('.gallery-item').style.display !== 'none') { 
+                cb.checked = isChecked;
+                cb.closest('.gallery-item').classList.toggle('selected', isChecked);
+            }
+        });
+    }
+
+    lastCheckedIndex = currentIndex;
+    checkbox.closest('.gallery-item').classList.toggle('selected', checkbox.checked);
+}
+
+function toggleAllCheckboxes(checked) {
+    const checkboxes = document.querySelectorAll('.gallery-item input[type="checkbox"]');
+    checkboxes.forEach(cb => {
+        if(cb.closest('.gallery-item').style.display !== 'none') { 
+            cb.checked = checked;
+            cb.closest('.gallery-item').classList.toggle('selected', checked);
+        }
+    });
+    lastCheckedIndex = -1; 
+}
+
+function exportSelectedLinks() {
+    const t = translations[currentLanguage];
+    const selectedUrls = Array.from(document.querySelectorAll('.gallery-item input[type="checkbox"]:checked'))
+                               .map(cb => cb.closest('.gallery-item').dataset.url)
+                               .join('\n');
+
+    if (selectedUrls.length === 0) {
+        alert(t.alertNoLinks);
+        return;
+    }
+
+    const blob = new Blob([selectedUrls], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.download = 'selected_links.txt';
+    a.href = window.URL.createObjectURL(blob);
+    a.click();
+    window.URL.revokeObjectURL(a.href);
+}
+
+function applySortAndFilter() {
+    const list = document.getElementById("urlList");
+    list.innerHTML = ""; 
+
+    const filterInputs = document.querySelectorAll("#filterControls input");
+    const activeTypes = Array.from(filterInputs)
+                        .filter(cb => cb.checked)
+                        .map(cb => cb.value);
+    
+    const sortBy = document.getElementById('sortSelector').value;
+    
+    let filteredData = currentUrlsData.filter(data => data.isVisible && activeTypes.includes(data.type));
+
+    filteredData.sort((a, b) => {
+        if (sortBy === 'resolution_desc') {
+            if (b.resolution !== a.resolution) {
+                return b.resolution - a.resolution;
+            }
+        } else if (sortBy === 'resolution_asc') {
+            if (a.resolution !== b.resolution) {
+                return a.resolution - b.resolution;
+            }
+        }
+        return a.initialIndex - b.initialIndex;
+    });
+    
+    filteredData.forEach(data => {
+        const isChecked = data.element.querySelector('input[type="checkbox"]').checked;
+        data.element.classList.toggle('selected', isChecked);
+        list.appendChild(data.element);
+    });
+
+    lastCheckedIndex = -1; 
+}
+
+function createGalleryItem(url, type, isChecked = false) {
+  const item = document.createElement("div");
+  item.className = "gallery-item";
+  item.dataset.type = type;
+  item.dataset.url = url;
+  
+  item.onclick = (e) => {
+      if (e.target.tagName !== 'INPUT' && e.target.type !== 'checkbox') {
+          window.open(url, '_blank');
+      }
+  };
+
+  const checkboxWrapper = document.createElement("div");
+  checkboxWrapper.className = "checkbox-overlay";
+
+  const checkbox = document.createElement("input");
+  checkbox.type = "checkbox";
+  checkbox.checked = isChecked;
+  checkbox.onclick = (e) => {
+      e.stopPropagation(); 
+      handleShiftClick(checkbox, e);
+  };
+  checkboxWrapper.appendChild(checkbox);
+  item.appendChild(checkboxWrapper);
+
+  const wrapper = document.createElement("div");
+  wrapper.className = "media-wrapper";
+
+  const isVideo = /\.(mp4|webm|mov|avi|mkv|flv|ogv|wmv)$/i.test(url);
+  const media = document.createElement(isVideo ? 'video' : 'img');
+  
+  // 💡 保持沒有 crossOrigin
+  media.src = url;
+  media.preload = 'metadata';
+  media.title = url;
+  if (isVideo) {
+    media.muted = true;
+    media.loop = true;
+    media.autoplay = false;
+  }
+  
+  wrapper.appendChild(media);
+  item.appendChild(wrapper);
+
+  const info = document.createElement("div");
+  info.className = "item-info";
+
+  const typeDisplay = document.createElement("strong");
+  typeDisplay.textContent = type.toUpperCase();
+  
+  const dimSpan = document.createElement("span");
+  dimSpan.className = "dimensions-info";
+  dimSpan.textContent = translations[currentLanguage].mediaReading;
+  
+  info.appendChild(typeDisplay);
+  info.appendChild(dimSpan);
+  item.appendChild(info);
+
+  return item;
+}
+
+
+/**
+ * 💡 核心回溯：使用 v5 的尺寸獲取邏輯
+ * 此邏輯依賴標準 onload/onerror，未觸發 CORS 錯誤。
+ */
+function getMediaDimensions(url, item, type, callback) {
+  const dimSpan = item.querySelector('.dimensions-info');
+  const t = translations[currentLanguage];
+  const isVideo = /\.(mp4|webm|mov|avi|mkv|flv|ogv|wmv)$/i.test(url);
+  const isImage = /\.(jpg|jpeg|png|gif|webp|bmp|svg|tif|tiff|ico)$/i.test(url);
+
+  let resolutionValue = 0; 
+
+  if (isVideo || isImage) {
+    const media = isVideo ? document.createElement('video') : new Image();
+    
+    // 舊版回溯，不設置 crossOrigin 
+
+    const handleLoad = () => {
+        let width = isVideo ? media.videoWidth : media.naturalWidth;
+        let height = isVideo ? media.videoHeight : media.naturalHeight;
+        
+        // 舊版邏輯：如果尺寸為 0 則視為錯誤
+        if (width > 0 && height > 0) {
+            resolutionValue = width * height;
+            const dim = `${width}x${height}`;
+            dimSpan.textContent = `[${dim}]`;
+            item.dataset.dimensions = dim;
+            callback(resolutionValue);
+        } else {
+            // 載入成功但尺寸為 0，也視為錯誤
+            resolutionValue = 0;
+            dimSpan.textContent = `[${t.mediaReadingError}]`;
+            item.dataset.dimensions = "Error";
+            callback(resolutionValue);
+        }
+        
+        if (isVideo) media.remove();
+    };
+
+    const handleError = () => {
+        resolutionValue = 0;
+        dimSpan.textContent = `[${t.mediaReadingError}]`;
+        item.dataset.dimensions = "Error";
+        callback(resolutionValue);
+        if (isVideo) media.remove();
+    };
+
+    if (isVideo) {
+        media.preload = 'metadata';
+        media.onloadedmetadata = handleLoad;
+        media.onerror = handleError;
+        media.src = url;
+    } else {
+        media.onload = handleLoad;
+        media.onerror = handleError;
+        media.src = url;
+    }
+  } else {
+    dimSpan.textContent = `[N/A]`;
+    item.dataset.dimensions = "N/A";
+    callback(resolutionValue);
+  }
+}
+
+function closeModal(event) {
+  const modal = document.getElementById("myModal");
+  if (event && event.target !== modal) return;
+  
+  modal.style.display = "none";
+  const video = document.querySelector("#modal-media-container video");
+  if (video) video.pause();
+}
+
+function copyLink() {
+    const t = translations[currentLanguage];
+    const link = document.getElementById("modal-link").textContent;
+    navigator.clipboard.writeText(link).then(() => {
+        alert(t.alertCopied);
+    }).catch(err => {
+        console.error('Copy failed:', err);
+        alert(t.alertCopyFailed);
+    });
+}
+
+function copyResultText() {
+    const t = translations[currentLanguage];
+    const resultTextarea = document.getElementById("resultText");
+    resultTextarea.select(); 
+    navigator.clipboard.writeText(resultTextarea.value).then(() => {
+        alert(t.alertResultCopied);
+    }).catch(err => {
+        console.error('Copy failed:', err);
+        alert(t.alertCopyFailed);
+    });
+}
+
+document.addEventListener('keydown', function(event) {
+    if (event.key === 'Escape' && document.getElementById("myModal").style.display === "flex") {
+        closeModal();
+    }
+});
+</script>
+</body>
+</html>
